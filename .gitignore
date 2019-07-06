@@ -1,0 +1,7 @@
+*
+
+!**/*.go
+!**/*.md
+!*/
+!.gitignore
+!Makefile
