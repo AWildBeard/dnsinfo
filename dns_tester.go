@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"sync"
 
 	"github.com/miekg/dns"
@@ -75,11 +76,29 @@ func (opt *outputHandler) display(success bool, transport string, totalQueries i
 	fmt.Printf("\033[2K\r")
 	dilog.Printf("Calculated display offset (%s): %d\n", outInfo.transport, whereToGo)
 
-	fmt.Printf("%s \033[38;5;118msuccess\033[m: [%d/%d] \033[38;5;196mfailures\033[m: [%d/%d] \033[38;5;63mtotal\033[m: [%d/%d]",
-		transport, outInfo.numSuccess, totalQueries,
-		outInfo.numFailed, totalQueries,
-		outInfo.numFailed+outInfo.numSuccess, totalQueries)
+	var ratio = float64(25) / float64(totalQueries)
+	var percentage = 4.0
+	var progress = float64(outInfo.numSuccess+outInfo.numFailed) * ratio
+	progress = math.Ceil(progress)
 
+	fmt.Printf("%-8s [", transport)
+
+	for i := float64(0); i < progress; i++ {
+		fmt.Print("■")
+	}
+
+	for i := progress; i < float64(25); i++ {
+		fmt.Print(" ")
+	}
+
+	fmt.Printf("] %3.0f%% \033[38;5;118mS\033[m:%3d \033[38;5;196mF\033[m: %d", progress*percentage,
+		outInfo.numSuccess, outInfo.numFailed)
+
+	//	fmt.Printf("%-10s \033[38;5;118msuccess\033[m: [%d/%d] \033[38;5;196mfailures\033[m: [%d/%d] \033[38;5;63mtotal\033[m: [%d/%d]",
+	//		transport, outInfo.numSuccess, totalQueries,
+	//		outInfo.numFailed, totalQueries,
+	//		outInfo.numFailed+outInfo.numSuccess, totalQueries)
+	//
 	// Move cursor back to bottom line
 	fmt.Printf("\033[%dB\r", whereToGo)
 	opt.lock.Unlock()
