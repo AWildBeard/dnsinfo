@@ -11,27 +11,24 @@ type outputHandler struct {
 	lock          sync.Mutex
 	displayOutput bool
 	testInfo      []*outputInfo
-	totalRequests int
 }
 
 type outputInfo struct {
 	transport     string
 	displayOffset int
-	totalRequests int
 	numSuccess    int
 	numFailed     int
 }
 
-func newOutputHandler(totalRequests int) outputHandler {
+func newOutputHandler() outputHandler {
 	return outputHandler{
 		lock:          sync.Mutex{},
 		displayOutput: true,
 		testInfo:      make([]*outputInfo, 0),
-		totalRequests: totalRequests,
 	}
 }
 
-func (opt *outputHandler) display(success bool, transport string) {
+func (opt *outputHandler) display(success bool, transport string, totalQueries int) {
 	if !opt.displayOutput {
 		return
 	}
@@ -53,7 +50,6 @@ func (opt *outputHandler) display(success bool, transport string) {
 		var newOutInfo = &outputInfo{
 			transport:     transport,
 			displayOffset: len(opt.testInfo),
-			totalRequests: opt.totalRequests,
 			numSuccess:    0,
 			numFailed:     0,
 		}
@@ -62,6 +58,12 @@ func (opt *outputHandler) display(success bool, transport string) {
 		outInfo = newOutInfo
 		opt.testInfo = append(opt.testInfo, newOutInfo)
 		opt.lock.Unlock()
+	}
+
+	if success {
+		outInfo.numSuccess++
+	} else {
+		outInfo.numFailed++
 	}
 
 	// Move cursor to appropriate line
@@ -73,19 +75,10 @@ func (opt *outputHandler) display(success bool, transport string) {
 	fmt.Printf("\033[2K\r")
 	dilog.Printf("Calculated display offset (%s): %d\n", outInfo.transport, whereToGo)
 
-	if success {
-		outInfo.numSuccess++
-		fmt.Printf("%s \033[38;5;118msuccess\033[m: [%d/%d] \033[38;5;196mfailures\033[m: [%d/%d] \033[38;5;63mtotal\033[m: [%d/%d]",
-			transport, outInfo.numSuccess, outInfo.totalRequests,
-			outInfo.numFailed, outInfo.totalRequests,
-			outInfo.numFailed+outInfo.numSuccess, outInfo.totalRequests)
-	} else {
-		outInfo.numFailed++
-		fmt.Printf("%s \033[38;5;118msuccess\033[m: [%d/%d] \033[38;5;196mfailures\033[m: [%d/%d] \033[38;5;63mtotal\033[m: [%d/%d]",
-			transport, outInfo.numSuccess, outInfo.totalRequests,
-			outInfo.numFailed, outInfo.totalRequests,
-			outInfo.numFailed+outInfo.numSuccess, outInfo.totalRequests)
-	}
+	fmt.Printf("%s \033[38;5;118msuccess\033[m: [%d/%d] \033[38;5;196mfailures\033[m: [%d/%d] \033[38;5;63mtotal\033[m: [%d/%d]",
+		transport, outInfo.numSuccess, totalQueries,
+		outInfo.numFailed, totalQueries,
+		outInfo.numFailed+outInfo.numSuccess, totalQueries)
 
 	// Move cursor back to bottom line
 	fmt.Printf("\033[%dB\r", whereToGo)
@@ -104,6 +97,7 @@ func newTester(connectionType string, servers, queries *[]string) *tester {
 
 	tester.transport = connectionType
 	tester.transportClient = &dns.Client{Net: connectionType}
+	tester.transportClient.Timeout = timeout // global flag from cmd line
 	tester.servers = servers
 	tester.queries = queries
 
@@ -112,22 +106,31 @@ func newTester(connectionType string, servers, queries *[]string) *tester {
 
 func (tstr *tester) test(outputHandler *outputHandler, exitIndicate chan bool) {
 	dilog.Printf("Beginning %s test\n", tstr.transport)
+
+	var totalRequests = len(*tstr.queries) * len(*tstr.servers)
+
 	for _, server := range *tstr.servers {
 		for _, query := range *tstr.queries {
+
 			dilog.Printf("Testing %v @ %v (%s)\n", query, server, tstr.transport)
+
 			var msg = dns.Msg{}
 			msg.SetQuestion(dns.Fqdn(query), dns.TypeA)
+
 			if rsp, _, err := tstr.transportClient.Exchange(&msg, server); err == nil {
 				if rsp.Rcode == 0 {
 					dslog.Printf("Successfully resolved %s (%s)\n", query, tstr.transport)
-					outputHandler.display(true, tstr.transport)
+					outputHandler.display(true, tstr.transport, totalRequests)
+
 				} else {
 					dslog.Printf("Failed to resolve %s (%s)\n", query, tstr.transport)
-					outputHandler.display(false, tstr.transport)
+					outputHandler.display(false, tstr.transport, totalRequests)
+
 				}
 			} else {
 				delog.Printf("DNS request failed: %v (%s)\n", err, tstr.transport)
-				outputHandler.display(false, tstr.transport)
+				outputHandler.display(false, tstr.transport, totalRequests)
+
 			}
 		}
 	}
